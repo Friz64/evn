@@ -1,0 +1,8 @@
+[package]
+name = "evn_shaderc"
+version = "0.1.0"
+authors = ["Friz64 <friz64mc@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+shaderc = "0.3"
