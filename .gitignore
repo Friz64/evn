@@ -1,5 +1,11 @@
 /target
 **/*.rs.bk
 /Cargo.lock
-/evn_shaders/target
-/evn_shaders/Cargo.lock
+/evn_shaderc/target
+/evn_shaderc/Cargo.lock
+/nested_struct/target
+/nested_struct/Cargo.lock
+evn_linux.zip
+evn_windows.zip
+/logs
+latest_log.txt

@@ -5,12 +5,26 @@ use shaderc::OptimizationLevel;
 use shaderc::ShaderKind;
 use std::fs;
 use std::io::Write;
+use clap::{App, Arg};
 
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
-
-    let input = args.get(1).expect("Expected input path as 1st arg");
-    let output = args.get(2).expect("Expected output path as 2nd arg");
+    let matches = App::new("evn shader compiler")
+        .arg(Arg::with_name("input")
+            .short("i")
+            .value_name("PATH")
+            .required(true)
+            .help("Source code directory (Required)")
+        )
+        .arg(Arg::with_name("output")
+            .short("o")
+            .value_name("PATH")
+            .required(true)
+            .help("Output directory (Required)")
+        )
+        .get_matches();
+    
+    let input = matches.value_of("input").unwrap();
+    let output = matches.value_of("output").unwrap();
 
     // just to make sure
     let _ = fs::create_dir_all(&output);
@@ -64,7 +78,7 @@ fn main() {
                     .write(true)
                     .create(true)
                     .truncate(true)
-                    .open(format!("{}/{}.spirv", output, file_name))
+                    .open(format!("{}/{}.spv", output, file_name))
                     .unwrap();
 
                 file.write(result.as_binary_u8()).unwrap();

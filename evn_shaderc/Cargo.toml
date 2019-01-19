@@ -6,3 +6,4 @@ edition = "2018"
 
 [dependencies]
 shaderc = "0.3"
+clap = "2.32"

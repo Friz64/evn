@@ -6,7 +6,22 @@
         {
             "type": "shell",
             "label": "compile shaders",
-            "command": "./evn_shaders/target/release/evn_shaderc ./evn_shaders/shaders/ ./assets/shaders/",
+            "command": "./compile_shaders.sh",
         },
+        {
+            "type": "shell",
+            "label": "pack game",
+            "command": "./pack_game.sh -l -w",
+        },
+        {
+            "type": "shell",
+            "label": "run debug",
+            "command": "cargo run -- --dev"
+        },
+        {
+            "type": "shell",
+            "label": "run release",
+            "command": "cargo run --release -- --dev"
+        }
     ]
 }
