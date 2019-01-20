@@ -16,12 +16,12 @@
         {
             "type": "shell",
             "label": "run debug",
-            "command": "cargo run -- --dev"
+            "command": "cargo run -p evn -- --dev"
         },
         {
             "type": "shell",
             "label": "run release",
-            "command": "cargo run --release -- --dev"
+            "command": "cargo run -p evn --release -- --dev"
         }
     ]
 }

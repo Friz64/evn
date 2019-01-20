@@ -1,7 +1,5 @@
 #!/bin/bash
 
-cd evn_shaderc
-cargo build --release
-cd ..
+cargo build -p evn_shaderc --release
 
-./evn_shaderc/target/release/evn_shaderc -i ./src/shaders/ -o ./resources/closed/shaders/
+./target/release/evn_shaderc -i ./evn/src/shaders/ -o ./resources/closed/shaders/

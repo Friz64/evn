@@ -1,3 +1,4 @@
+use clap::{App, Arg};
 use shaderc::CompileOptions;
 use shaderc::Compiler;
 use shaderc::Error;
@@ -5,24 +6,25 @@ use shaderc::OptimizationLevel;
 use shaderc::ShaderKind;
 use std::fs;
 use std::io::Write;
-use clap::{App, Arg};
 
 fn main() {
     let matches = App::new("evn shader compiler")
-        .arg(Arg::with_name("input")
-            .short("i")
-            .value_name("PATH")
-            .required(true)
-            .help("Source code directory (Required)")
+        .arg(
+            Arg::with_name("input")
+                .short("i")
+                .value_name("PATH")
+                .required(true)
+                .help("Source code directory (Required)"),
         )
-        .arg(Arg::with_name("output")
-            .short("o")
-            .value_name("PATH")
-            .required(true)
-            .help("Output directory (Required)")
+        .arg(
+            Arg::with_name("output")
+                .short("o")
+                .value_name("PATH")
+                .required(true)
+                .help("Output directory (Required)"),
         )
         .get_matches();
-    
+
     let input = matches.value_of("input").unwrap();
     let output = matches.value_of("output").unwrap();
 
@@ -81,7 +83,7 @@ fn main() {
                     .open(format!("{}/{}.spv", output, file_name))
                     .unwrap();
 
-                file.write(result.as_binary_u8()).unwrap();
+                file.write_all(result.as_binary_u8()).unwrap();
             }
             Err(err) => match err {
                 Error::CompilationError(num, error) => {

@@ -1,11 +1,11 @@
-/target
-**/*.rs.bk
-/Cargo.lock
-/evn_shaderc/target
-/evn_shaderc/Cargo.lock
-/nested_struct/target
-/nested_struct/Cargo.lock
+# cargo building
+target/
+Cargo.lock
+
+# packed game
 evn_linux.zip
 evn_windows.zip
-/logs
+
+# logging
+logs/
 latest_log.txt

@@ -17,10 +17,10 @@ use std::path::{Path, PathBuf};
 #[macro_export]
 macro_rules! include_resource {
     (open: $file:expr) => {
-        include_bytes!(concat!("../resources/open/", $file))
+        include_bytes!(concat!("../../resources/open/", $file))
     };
     (closed: $file:expr) => {
-        include_bytes!(concat!("../resources/closed/", $file))
+        include_bytes!(concat!("../../resources/closed/", $file))
     };
 }
 

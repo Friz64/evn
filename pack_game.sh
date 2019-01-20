@@ -13,7 +13,7 @@ fi
 
 if [ "$linux" == "1" ]; then
     echo "BUILDING LINUX"
-    cargo build --release
+    cargo build -p evn --release
     strip target/release/evn
 
     echo ""
@@ -31,7 +31,7 @@ fi
 
 if [ "$windows" == "1" ]; then
     echo "BUILDING WINDOWS"
-    cargo build --release --target x86_64-pc-windows-gnu
+    cargo build -p evn --release --target x86_64-pc-windows-gnu
     strip target/x86_64-pc-windows-gnu/release/evn.exe
 
     echo ""

@@ -36,7 +36,7 @@ Done with evn_shaderc, a command line wrapper around [shaderc](https://github.co
 
 - ### Development Mode
 
-`cargo run --release -- --dev`
+`cargo run -p evn --release -- --dev`
 
 - ### Packed Mode
 

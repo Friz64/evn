@@ -1,0 +1,8 @@
+[package]
+name = "evn"
+version = "0.1.0"
+authors = ["Friz64 <friz64mc@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+evn_engine = { path = "../evn_engine" }
