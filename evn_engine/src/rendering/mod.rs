@@ -9,9 +9,7 @@ pub struct Renderer {
 
 impl Renderer {
     pub fn new(window: Window) -> Self {
-        Renderer {
-            window,
-        }
+        Renderer { window }
     }
 }
 

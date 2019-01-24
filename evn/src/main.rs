@@ -5,12 +5,15 @@ fn main() {
         "Indev",
         |res_builder| {
             res_builder
-                .with_config("config.yml", include_resource!(open: "config.yml"))
-                .unwrap_or_log("Config")
+                .with_config(
+                    "config",
+                    "config.yml",
+                    include_resource!(open: "config.yml"),
+                )
                 .with_shader(
-                    "normal",
-                    include_resource!(closed: "shaders/normal.vert.spv"),
-                    include_resource!(closed: "shaders/normal.frag.spv"),
+                    "shader_normal",
+                    "shaders/normal.vert.spv",
+                    "shaders/normal.frag.spv",
                 )
         },
         |window_builder| {
@@ -19,7 +22,7 @@ fn main() {
                 .with_dimensions((1280, 720).into())
         },
     )
-    .unwrap();
+    .unwrap_or_log("InitGame");
 
     game.run();
 }

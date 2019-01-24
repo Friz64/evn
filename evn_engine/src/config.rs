@@ -1,12 +1,8 @@
 use failure::Fail;
-use hashbrown::HashMap;
 use serde_yaml::Value;
 use std::fs;
 use std::io;
 use std::path::Path;
-
-#[derive(Debug)]
-pub struct ConfigMap(pub HashMap<String, Config>);
 
 #[derive(Debug, Fail)]
 pub enum ConfigError {

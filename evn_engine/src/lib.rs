@@ -2,18 +2,20 @@ pub mod config;
 pub mod logger;
 pub mod prelude;
 pub mod rendering;
+pub mod resources;
 
 use crate::{
-    config::{Config, ConfigError, ConfigMap},
-    logger::{Logger, LoggerInitError, UnwrapOrLog},
-    rendering::{shaders::ShaderMap, Renderer},
+    logger::{Logger, LoggerInitError},
+    rendering::Renderer,
+    resources::{ResourceBuilder, Resources},
 };
-use clap::{App, Arg, ArgMatches};
-use hashbrown::HashMap;
+use clap::{App, Arg};
+use failure::Fail;
 use log::info;
+use rayon::{ThreadPoolBuildError, ThreadPoolBuilder};
 use specs::World;
-use std::path::{Path, PathBuf};
-use winit::{EventsLoop, WindowBuilder};
+use std::sync::{Arc, RwLock};
+use winit::{CreationError, EventsLoop, WindowBuilder};
 
 #[macro_export]
 macro_rules! include_resource {
@@ -25,14 +27,24 @@ macro_rules! include_resource {
     };
 }
 
+#[derive(Debug, Fail)]
+pub enum GameInitError {
+    #[fail(display = "Failed to init logger: {}", err)]
+    LoggerInit { err: LoggerInitError },
+    #[fail(display = "Failed to create window: {}", err)]
+    WindowCreation { err: CreationError },
+    #[fail(display = "Failed to create threadpool: {}", err)]
+    ThreadPoolCreation { err: ThreadPoolBuildError },
+}
+
 pub struct Game {
-    pub world: World,
+    pub world: Arc<RwLock<World>>,
     pub events_loop: EventsLoop,
 }
 
 impl Game {
     #[allow(clippy::new_ret_no_self)]
-    pub fn new<RB, WB>(version: &str, resources: RB, window: WB) -> Result<Self, LoggerInitError>
+    pub fn new<RB, WB>(version: &str, resources: RB, window: WB) -> Result<Self, GameInitError>
     where
         RB: FnOnce(ResourceBuilder) -> ResourceBuilder,
         WB: FnOnce(WindowBuilder) -> WindowBuilder,
@@ -49,86 +61,56 @@ impl Game {
             )
             .get_matches();
 
-        Logger::init(!clap.is_present("no-color"))?;
+        Logger::init(!clap.is_present("no-color"))
+            .map_err(|err| GameInitError::LoggerInit { err })?;
+
+        let thread_pool = ThreadPoolBuilder::new()
+            .build()
+            .map_err(|err| GameInitError::ThreadPoolCreation { err })?;
 
         let events_loop = EventsLoop::new();
 
-        let renderer = Renderer::new(
-            window(WindowBuilder::new())
-                .build(&events_loop)
-                .unwrap_or_log("Window Creation"),
-        );
+        let window = window(WindowBuilder::new())
+            .build(&events_loop)
+            .map_err(|err| GameInitError::WindowCreation { err })?;
+
+        let renderer = Renderer::new(window);
 
         let mut world = World::new();
+
         world.add_resource(renderer);
         world.add_resource(clap);
-        world.add_resource(ConfigMap(HashMap::new()));
-        world.add_resource(ShaderMap(HashMap::new()));
+        world.add_resource(thread_pool);
+        world.add_resource(Resources::new());
 
-        resources(ResourceBuilder { world: &world });
+        let world = Arc::new(RwLock::new(world));
+
+        resources(ResourceBuilder {
+            world: world.clone(),
+        });
+
+        info!("Game initialized");
 
         Ok(Game { world, events_loop })
     }
 
     pub fn run(&self) {
-        let map = self.world.read_resource::<ConfigMap>();
-        println!("ConfigMap: {:?}", (*map));
+        // DEBUGGING
+        for _ in 0..=100 {
+            {
+                let (shaders, config) = {
+                    let read_world = self.world.read().unwrap();
+                    let res = read_world.read_resource::<Resources>();
+                    (
+                        (*res).get_resource("shader_normal").is_loaded(),
+                        (*res).get_resource("config").is_loaded(),
+                    )
+                };
 
-        std::thread::sleep(std::time::Duration::from_secs(10));
+                info!("shaders loaded: {} - config loaded: {}", shaders, config);
+            }
+        }
 
         info!("Exiting...");
     }
-}
-
-pub struct ResourceBuilder<'a> {
-    world: &'a World,
-}
-
-impl<'a> ResourceBuilder<'a> {
-    pub fn with_config(
-        self,
-        path: impl AsRef<Path>,
-        template: &[u8],
-    ) -> Result<ResourceBuilder<'a>, ConfigError> {
-        {
-            let mut config_map = self.world.write_resource::<ConfigMap>();
-            let args = self.world.read_resource::<ArgMatches>();
-            (*config_map).0.insert(
-                path.as_ref().to_str().unwrap().into(),
-                Config::new(
-                    resource_path(path, &*args),
-                    &String::from_utf8_lossy(template),
-                )?,
-            );
-        }
-
-        Ok(self)
-    }
-
-    // shouldn't fail?
-    pub fn with_shader(
-        self,
-        name: &str,
-        vert_src: &'static [u8],
-        frag_src: &'static [u8],
-    ) -> ResourceBuilder<'a> {
-        {
-            let mut shader_map = self.world.write_resource::<ShaderMap>();
-            (*shader_map).0.insert(name.into(), (vert_src, frag_src));
-        }
-
-        self
-    }
-}
-
-fn resource_path(path: impl AsRef<Path>, args: &ArgMatches) -> PathBuf {
-    let mut res_path = PathBuf::from(if args.is_present("dev") {
-        "./resources/open/"
-    } else {
-        "./"
-    });
-
-    res_path.push(path);
-
-    res_path
 }

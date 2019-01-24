@@ -1,4 +1,6 @@
-use hashbrown::HashMap;
-
-// Will be storing compiled shaders down the line
-pub struct ShaderMap(pub HashMap<String, (&'static [u8], &'static [u8])>);
+#[derive(Debug)]
+pub struct Shader {
+    // will be stored differently when the renderer is implemented
+    pub vert: Vec<u8>,
+    pub frag: Vec<u8>,
+}
