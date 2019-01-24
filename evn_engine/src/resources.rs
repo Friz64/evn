@@ -121,7 +121,6 @@ impl ResourceBuilder {
         self
     }
 
-    // shouldn't fail?
     pub fn with_shader<P: AsRef<Path> + Send + Sync + 'static>(
         self,
         name: impl AsRef<str>,
@@ -169,14 +168,11 @@ impl ResourceBuilder {
 }
 
 fn resource_path(path: impl AsRef<Path>, args: &ArgMatches, open: bool) -> PathBuf {
-    let mut res_path = PathBuf::from(if args.is_present("dev") {
-        if open {
-            "./resources/open/"
-        } else {
-            "./resources/closed/"
-        }
-    } else {
-        "./"
+    let mut res_path = PathBuf::from(match (args.is_present("dev"), open) {
+        (true, true) => "./resources/open/",
+        (true, false) => "./resources/closed/",
+        (false, true) => "./",
+        (false, false) => "./res/"
     });
 
     res_path.push(path);

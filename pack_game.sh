@@ -19,6 +19,7 @@ if [ "$linux" == "1" ]; then
     echo ""
     echo "PACKING LINUX"
     cp -r resources/open/ temp/
+    cp -r resources/closed/ temp/res/
     cp target/release/evn temp/
     cd temp
     zip -r evn_linux.zip .
@@ -37,6 +38,7 @@ if [ "$windows" == "1" ]; then
     echo ""
     echo "PACKING WINDOWS"
     cp -r resources/open/ temp/
+    cp -r resources/closed/ temp/res/
     cp target/x86_64-pc-windows-gnu/release/evn.exe temp/
     cd temp
     zip -r evn_windows.zip .

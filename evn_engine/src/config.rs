@@ -28,13 +28,13 @@ impl Config {
         let conf_src = match fs::read_to_string(&path) {
             Ok(conf_src) => conf_src,
             Err(err) => {
-                return Err(ConfigError::ReadConfigFile { err: err });
+                return Err(ConfigError::ReadConfigFile { err });
             }
         };
 
         let conf = match serde_yaml::from_str(&conf_src) {
             Ok(conf) => conf,
-            Err(err) => return Err(ConfigError::ParseConfig { err: err }),
+            Err(err) => return Err(ConfigError::ParseConfig { err }),
         };
 
         let template = match serde_yaml::from_str(template_src) {
