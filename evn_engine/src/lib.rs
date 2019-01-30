@@ -4,19 +4,22 @@ pub mod logger;
 pub mod prelude;
 pub mod rendering;
 pub mod resources;
+pub mod systems;
 
 use crate::{
     logger::{Logger, LoggerInitError},
     rendering::Renderer,
     resources::{ResourceBuilder, ResourcesData},
+    systems::EventHandler,
 };
 use clap::{App, Arg};
+use crossbeam::{channel, Sender};
 use failure::Fail;
 use log::info;
 use rayon::{ThreadPoolBuildError, ThreadPoolBuilder};
 use specs::{Dispatcher, DispatcherBuilder, World};
 use std::sync::{Arc, RwLock};
-use winit::{CreationError, EventsLoop, WindowBuilder};
+use winit::{CreationError, Event, EventsLoop, WindowBuilder};
 
 #[macro_export]
 macro_rules! include_resource {
@@ -44,6 +47,7 @@ pub struct Game<'a, 'b> {
     pub world: World,
     pub dispatcher: Dispatcher<'a, 'b>,
     pub events_loop: EventsLoop,
+    pub event_send: Sender<Event>,
 }
 
 impl<'a, 'b> Game<'a, 'b> {
@@ -82,12 +86,15 @@ impl<'a, 'b> Game<'a, 'b> {
         components::register(&mut world);
         world_access(&mut world);
 
-        // Resources
+        // Thread Pool
         let thread_pool = Arc::new(
             ThreadPoolBuilder::new()
                 .build()
                 .map_err(|err| GameInitError::ThreadPoolCreation { err })?,
         );
+
+        // event channel
+        let (send, recv) = channel::unbounded();
 
         // Resources
         let resources = resources(ResourceBuilder {
@@ -95,6 +102,7 @@ impl<'a, 'b> Game<'a, 'b> {
             is_dev: clap.is_present("dev"),
         });
 
+        world.add_resource(recv);
         world.add_resource(clap);
         world.add_resource(thread_pool.clone());
         world.add_resource(resources.res);
@@ -109,12 +117,10 @@ impl<'a, 'b> Game<'a, 'b> {
         let renderer = Renderer::new(window);
 
         // Dispatcher
-        let dispatcher = dispatcher_builder(DispatcherBuilder::new().with_pool(thread_pool).with(
-            renderer,
-            "renderer",
-            &[],
-        ))
-        .build();
+        let dispatcher = dispatcher_builder(DispatcherBuilder::new().with_pool(thread_pool))
+            .with(EventHandler, "event_handler", &[])
+            .with(renderer, "renderer", &["event_handler"])
+            .build();
 
         info!("Game initialized");
 
@@ -122,14 +128,19 @@ impl<'a, 'b> Game<'a, 'b> {
             world,
             dispatcher,
             events_loop,
+            event_send: send,
         })
     }
 
     pub fn run(&mut self) {
+        let event_send = self.event_send.clone();
         while self.world.read_resource::<Running>().0 {
-            // handle events
+            self.events_loop.poll_events(|event| {
+                event_send.send(event).unwrap();
+            });
 
             self.dispatcher.dispatch(&mut self.world.res);
+
             self.world.maintain();
         }
 

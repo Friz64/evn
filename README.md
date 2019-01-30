@@ -12,7 +12,7 @@ System for loading external files asynchronously.
     - Packed path: `./res/`
   - Open (`resources/open/`)
     - Meant to change (Configs, ...)
-    - Packed path: `.`
+    - Packed path: `./`
 
 ## Shader compilation
 
@@ -26,8 +26,8 @@ Done with evn_shaderc, a command line wrapper around [shaderc](https://github.co
 
 - Compile evn_shaderc in release mode
 - Run evn_shaderc with the correct arguments
-  - Compiles GLSL shaders in `src/shaders/`
-  - Saves them in `resources/`
+  - Compiles GLSL shaders in `evn/src/shaders/`
+  - Saves them in `resources/closed/shaders/`
 
 #### Requirements
 
