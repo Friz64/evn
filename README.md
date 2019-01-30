@@ -4,14 +4,15 @@ A hobby game with a selfmade engine written in Rust
 
 ## Resource System
 
+System for loading external files asynchronously.
+
 - Resource folder (`resources/`)
   - Closed (`resources/closed/`)
-    - Included in the executable with the include_resource! macro
     - Shouldn't change (Textures, Shaders, ...)
+    - Packed path: `./res/`
   - Open (`resources/open/`)
-    - Loaded at runtime
     - Meant to change (Configs, ...)
-    - In the executables directory when packed
+    - Packed path: `.`
 
 ## Shader compilation
 
