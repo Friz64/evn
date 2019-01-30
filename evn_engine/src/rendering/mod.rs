@@ -1,8 +1,8 @@
 pub mod shaders;
 
+use specs::System;
 use winit::Window;
 
-// renderer is fully accessed over the ecs
 pub struct Renderer {
     pub window: Window,
 }
@@ -11,6 +11,13 @@ impl Renderer {
     pub fn new(window: Window) -> Self {
         Renderer { window }
     }
+}
+
+impl<'a> System<'a> for Renderer {
+    type SystemData = ();
+
+    // drawing
+    fn run(&mut self, (): Self::SystemData) {}
 }
 
 impl Drop for Renderer {

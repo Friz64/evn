@@ -1,8 +1,15 @@
 use evn_engine::prelude::*;
 
 fn main() {
-    let game = Game::new(
+    let mut game = Game::new(
         "Indev",
+        |_world| {
+            // register components here
+        },
+        |dispatcher| {
+            // add systems here
+            dispatcher
+        },
         |res_builder| {
             res_builder
                 .with_config(

@@ -1,14 +1,16 @@
-use crate::{config::Config, logger::UnwrapOrLog, rendering::shaders::Shader};
-use clap::ArgMatches;
+use crate::{config::Config, rendering::shaders::Shader};
 use hashbrown::HashMap;
-use specs::World;
+use log::warn;
 use std::{
+    fmt::Display,
     fs::File,
-    io::Read,
+    io::{Error as IoError, Read},
     path::{Path, PathBuf},
     sync::{Arc, Mutex, RwLock},
     thread,
 };
+
+pub type Resources = Arc<RwLock<ResourcesData>>;
 
 #[derive(Debug)]
 pub enum Resource {
@@ -20,6 +22,7 @@ pub enum Resource {
 pub enum ResourceState {
     Loaded(Resource),
     Loading,
+    Failed,
 }
 
 impl ResourceState {
@@ -33,18 +36,21 @@ impl ResourceState {
 }
 
 #[derive(Debug)]
-pub struct Resources {
+pub struct ResourcesData {
     resources: Arc<Mutex<HashMap<String, Arc<ResourceState>>>>,
 }
 
-impl Resources {
+impl ResourcesData {
     pub fn new() -> Self {
-        Default::default()
+        ResourcesData {
+            resources: Arc::new(Mutex::new(HashMap::new())),
+        }
     }
 
-    pub fn add_resource<F: 'static>(&self, name: impl AsRef<str>, load: F)
+    pub fn add_resource<F: 'static, E>(&self, name: impl AsRef<str>, load: F)
     where
-        F: FnOnce() -> Resource + Send + Sync,
+        F: FnOnce() -> Result<Resource, E> + Send + Sync,
+        E: Display,
     {
         let name = name.as_ref().to_owned();
 
@@ -56,12 +62,22 @@ impl Resources {
         thread::spawn({
             let res = self.resources.clone();
             move || {
-                let loaded = load();
+                match load() {
+                    Ok(loaded) => {
+                        let mut res = res.lock().unwrap();
+                        if let Some(val) = (*res).get_mut(&name) {
+                            *(val) = Arc::new(ResourceState::Loaded(loaded));
+                        }
+                    }
+                    Err(err) => {
+                        warn!("Failed to load resource {}: {}", name, err);
 
-                let mut res = res.lock().unwrap();
-                if let Some(val) = (*res).get_mut(&name) {
-                    *(val) = Arc::new(ResourceState::Loaded(loaded));
-                }
+                        let mut res = res.lock().unwrap();
+                        if let Some(val) = (*res).get_mut(&name) {
+                            *(val) = Arc::new(ResourceState::Failed);
+                        }
+                    }
+                };
             }
         });
     }
@@ -71,22 +87,15 @@ impl Resources {
             let res = self.resources.lock().unwrap();
             (*res)
                 .get(name.as_ref())
-                .expect("Called get_resource() on nonexistent resource")
+                .expect("Called Resources::get_resource on nonexistent resource")
                 .clone()
         }
     }
 }
 
-impl Default for Resources {
-    fn default() -> Self {
-        Resources {
-            resources: Arc::new(Mutex::new(HashMap::new())),
-        }
-    }
-}
-
 pub struct ResourceBuilder {
-    pub world: Arc<RwLock<World>>,
+    pub res: Resources,
+    pub is_dev: bool,
 }
 
 impl ResourceBuilder {
@@ -96,24 +105,20 @@ impl ResourceBuilder {
         path: P,
         template: &'static [u8],
     ) -> ResourceBuilder {
-        let world = self.world.clone();
+        let is_dev = self.is_dev;
+
         {
-            let read_world = world.read().unwrap();
-            let resources = read_world.read_resource::<Resources>();
-
+            let resources = self.res.read().unwrap();
             (*resources).add_resource(name, {
-                let world = world.clone();
                 move || {
-                    let read_world = world.read().unwrap();
-                    let args = read_world.read_resource::<ArgMatches>();
+                    let path = path.as_ref();
 
-                    Resource::Config(
-                        Config::new(
-                            resource_path(path.as_ref(), &args, true),
-                            &String::from_utf8_lossy(template),
-                        )
-                        .unwrap_or_log("Config"),
-                    )
+                    let config = Config::new(
+                        resource_path(path, is_dev, true),
+                        &String::from_utf8_lossy(template),
+                    );
+
+                    config.map(Resource::Config)
                 }
             });
         }
@@ -127,38 +132,33 @@ impl ResourceBuilder {
         vert_path: P,
         frag_path: P,
     ) -> ResourceBuilder {
-        let world = self.world.clone();
+        let is_dev = self.is_dev;
+
         {
-            let read_world = world.read().unwrap();
-            let resources = read_world.read_resource::<Resources>();
-
+            let resources = self.res.read().unwrap();
             (*resources).add_resource(name, {
-                let world = world.clone();
-                move || {
-                    let read_world = world.read().unwrap();
-                    let args = read_world.read_resource::<ArgMatches>();
+                move || -> Result<_, IoError> {
+                    {
+                        Ok(Resource::Shader({
+                            let vert = {
+                                let path = resource_path(vert_path.as_ref(), is_dev, false);
+                                let mut buf = Vec::new();
+                                let mut file = File::open(path)?;
+                                file.read_to_end(&mut buf)?;
+                                buf
+                            };
 
-                    Resource::Shader({
-                        let vert = {
-                            let mut buf = Vec::new();
-                            let mut file =
-                                File::open(resource_path(vert_path.as_ref(), &args, false))
-                                    .unwrap_or_log("VertexShader");
-                            file.read_to_end(&mut buf).unwrap_or_log("VertexShader");
-                            buf
-                        };
+                            let frag = {
+                                let path = resource_path(frag_path.as_ref(), is_dev, false);
+                                let mut buf = Vec::new();
+                                let mut file = File::open(path)?;
+                                file.read_to_end(&mut buf)?;
+                                buf
+                            };
 
-                        let frag = {
-                            let mut buf = Vec::new();
-                            let mut file =
-                                File::open(resource_path(frag_path.as_ref(), &args, false))
-                                    .unwrap_or_log("FragmentShader");
-                            file.read_to_end(&mut buf).unwrap_or_log("FragmentShader");
-                            buf
-                        };
-
-                        Shader { vert, frag }
-                    })
+                            Shader { vert, frag }
+                        }))
+                    }
                 }
             });
         }
@@ -167,12 +167,12 @@ impl ResourceBuilder {
     }
 }
 
-fn resource_path(path: impl AsRef<Path>, args: &ArgMatches, open: bool) -> PathBuf {
-    let mut res_path = PathBuf::from(match (args.is_present("dev"), open) {
+fn resource_path(path: impl AsRef<Path>, is_dev: bool, open: bool) -> PathBuf {
+    let mut res_path = PathBuf::from(match (is_dev, open) {
         (true, true) => "./resources/open/",
         (true, false) => "./resources/closed/",
         (false, true) => "./",
-        (false, false) => "./res/"
+        (false, false) => "./res/",
     });
 
     res_path.push(path);
