@@ -1,6 +1,6 @@
 use ansi_term::Color::*;
 use chrono::{Datelike, Local, Timelike};
-use failure::Fail;
+use err_derive::Error;
 use log::{error, info};
 use log::{Level, LevelFilter, Log, Metadata, Record};
 use std::{
@@ -42,13 +42,13 @@ impl<T> UnwrapOrLog<T> for Option<T> {
     }
 }
 
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum LoggerInitError {
-    #[fail(display = "Failed create logs folder: {}", err)]
+    #[error(display = "Failed create logs folder: {}", err)]
     LogsFolder { err: IoError },
-    #[fail(display = "Failed create latest log: {}", err)]
+    #[error(display = "Failed create latest log: {}", err)]
     LatestLog { err: IoError },
-    #[fail(display = "Failed create archived log: {}", err)]
+    #[error(display = "Failed create archived log: {}", err)]
     ArchivedLog { err: IoError },
 }
 
@@ -67,26 +67,20 @@ impl Logger {
             }
         }
 
-        let latest_log = match OpenOptions::new()
+        let latest_log = OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(true)
             .open("latest_log.txt")
-        {
-            Ok(file) => file,
-            Err(err) => return Err(LoggerInitError::LatestLog { err }),
-        };
+            .map_err(|err| LoggerInitError::LatestLog { err })?;
 
         let time_log_path = format!("./logs/{}-log.txt", format_yyyymmdd_hhmmss());
-        let time_log = match OpenOptions::new()
+        let time_log = OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(true)
             .open(&time_log_path)
-        {
-            Ok(file) => file,
-            Err(err) => return Err(LoggerInitError::ArchivedLog { err }),
-        };;
+            .map_err(|err| LoggerInitError::ArchivedLog { err })?;
 
         let logger = Logger {
             latest_log: Mutex::new(latest_log),

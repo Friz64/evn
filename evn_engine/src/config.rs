@@ -1,18 +1,19 @@
-use failure::Fail;
+use err_derive::Error;
 use serde_yaml::Value;
 use std::fs;
 use std::io;
 use std::path::Path;
 
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum ConfigError {
-    #[fail(display = "Failed to read config file: {}", err)]
+    #[error(display = "Failed to read config file: {}", err)]
     ReadConfigFile { err: io::Error },
-    #[fail(display = "Failed to parse config: {}", err)]
+    #[error(display = "Failed to parse config: {}", err)]
     ParseConfig { err: serde_yaml::Error },
-    #[fail(
+    #[error(
         display = "The structure of \"{}\" is not valid, please refer to:\n{}",
-        path_str, template
+        path_str,
+        template
     )]
     StructureValidation { path_str: String, template: String },
 }

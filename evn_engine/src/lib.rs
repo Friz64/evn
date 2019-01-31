@@ -7,14 +7,14 @@ pub mod resources;
 pub mod systems;
 
 use crate::{
-    logger::{Logger, LoggerInitError},
+    logger::Logger,
     rendering::Renderer,
     resources::{ResourceBuilder, ResourcesData},
     systems::EventHandler,
 };
 use clap::{App, Arg};
 use crossbeam::{channel, Sender};
-use failure::Fail;
+use err_derive::Error;
 use log::info;
 use rayon::{ThreadPoolBuildError, ThreadPoolBuilder};
 use specs::{Dispatcher, DispatcherBuilder, World};
@@ -33,13 +33,11 @@ macro_rules! include_resource {
 
 pub struct Running(pub bool);
 
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum GameInitError {
-    #[fail(display = "Failed to init logger: {}", err)]
-    LoggerInit { err: LoggerInitError },
-    #[fail(display = "Failed to create window: {}", err)]
+    #[error(display = "Failed to create window: {}", err)]
     WindowCreation { err: CreationError },
-    #[fail(display = "Failed to create threadpool: {}", err)]
+    #[error(display = "Failed to create threadpool: {}", err)]
     ThreadPoolCreation { err: ThreadPoolBuildError },
 }
 
@@ -77,8 +75,9 @@ impl<'a, 'b> Game<'a, 'b> {
             )
             .get_matches();
 
-        Logger::init(!clap.is_present("no-color"))
-            .map_err(|err| GameInitError::LoggerInit { err })?;
+        if let Err(err) = Logger::init(!clap.is_present("no-color")) {
+            eprintln!("Failed to init logger: {}", err);
+        }
 
         let mut world = World::new();
 
