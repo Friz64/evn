@@ -1,6 +1,4 @@
 {
-    // See https://go.microsoft.com/fwlink/?LinkId=733558
-    // for the documentation about the tasks.json format
     "version": "2.0.0",
     "tasks": [
         {
@@ -22,6 +20,11 @@
             "type": "shell",
             "label": "run release",
             "command": "cargo run -p evn --release -- --dev"
+        },
+        {
+            "type": "shell",
+            "label": "check windows",
+            "command": "cargo check --target x86_64-pc-windows-gnu"
         }
     ]
 }

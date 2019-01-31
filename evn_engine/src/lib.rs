@@ -8,7 +8,7 @@ pub mod systems;
 
 use crate::{
     logger::Logger,
-    rendering::Renderer,
+    rendering::{Renderer, RendererInitError},
     resources::{ResourceBuilder, ResourcesData},
     systems::EventHandler,
 };
@@ -39,6 +39,8 @@ pub enum GameInitError {
     WindowCreation { err: CreationError },
     #[error(display = "Failed to create threadpool: {}", err)]
     ThreadPoolCreation { err: ThreadPoolBuildError },
+    #[error(display = "Failed to create renderer: {}", err)]
+    RendererCreation { err: RendererInitError },
 }
 
 pub struct Game<'a, 'b> {
@@ -113,7 +115,8 @@ impl<'a, 'b> Game<'a, 'b> {
             .build(&events_loop)
             .map_err(|err| GameInitError::WindowCreation { err })?;
 
-        let renderer = Renderer::new(window);
+        let renderer =
+            Renderer::new(window).map_err(|err| GameInitError::RendererCreation { err })?;
 
         // Dispatcher
         let dispatcher = dispatcher_builder(DispatcherBuilder::new().with_pool(thread_pool))
