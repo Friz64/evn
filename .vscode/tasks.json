@@ -14,7 +14,7 @@
         {
             "type": "shell",
             "label": "run debug",
-            "command": "cargo run -p evn -- --dev"
+            "command": "cargo run -p evn -- --dev --debug-callback"
         },
         {
             "type": "shell",

@@ -68,7 +68,16 @@ impl<'a, 'b> Game<'a, 'b> {
         let clap = App::new("evn")
             .version(version)
             .about("A hobby game with an selfmade engine written in Rust")
-            .arg(Arg::with_name("dev").long("dev").help("Development mode"))
+            .arg(
+                Arg::with_name("dev")
+                    .long("dev")
+                    .help("Enable Development mode"),
+            )
+            .arg(
+                Arg::with_name("debug-callback")
+                    .long("debug-callback")
+                    .help("Enable Vulkan debug callback"),
+            )
             .arg(
                 Arg::with_name("no-color")
                     .long("no-color")
@@ -77,7 +86,11 @@ impl<'a, 'b> Game<'a, 'b> {
             )
             .get_matches();
 
-        if let Err(err) = Logger::init(!clap.is_present("no-color")) {
+        let no_color = clap.is_present("no-color");
+        let is_dev = clap.is_present("dev");
+        let debug_callback = clap.is_present("debug-callback");
+
+        if let Err(err) = Logger::init(!no_color) {
             eprintln!("Failed to init logger: {}", err);
         }
 
@@ -100,14 +113,8 @@ impl<'a, 'b> Game<'a, 'b> {
         // Resources
         let resources = resources(ResourceBuilder {
             res: Arc::new(RwLock::new(ResourcesData::new())),
-            is_dev: clap.is_present("dev"),
+            is_dev,
         });
-
-        world.add_resource(recv);
-        world.add_resource(clap);
-        world.add_resource(thread_pool.clone());
-        world.add_resource(resources.res);
-        world.add_resource(Running(true));
 
         // Renderer
         let events_loop = EventsLoop::new();
@@ -115,14 +122,21 @@ impl<'a, 'b> Game<'a, 'b> {
             .build(&events_loop)
             .map_err(|err| GameInitError::WindowCreation { err })?;
 
-        let renderer =
-            Renderer::new(window).map_err(|err| GameInitError::RendererCreation { err })?;
+        let renderer = Renderer::new(window, debug_callback)
+            .map_err(|err| GameInitError::RendererCreation { err })?;
 
         // Dispatcher
-        let dispatcher = dispatcher_builder(DispatcherBuilder::new().with_pool(thread_pool))
-            .with(EventHandler, "event_handler", &[])
-            .with(renderer, "renderer", &["event_handler"])
-            .build();
+        let dispatcher =
+            dispatcher_builder(DispatcherBuilder::new().with_pool(thread_pool.clone()))
+                .with(EventHandler, "event_handler", &[])
+                .with(renderer, "renderer", &["event_handler"])
+                .build();
+
+        world.add_resource(recv);
+        world.add_resource(clap);
+        world.add_resource(thread_pool);
+        world.add_resource(resources.res);
+        world.add_resource(Running(true));
 
         info!("Game initialized");
 
