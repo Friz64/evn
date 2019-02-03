@@ -170,6 +170,12 @@ pub enum RendererInitError {
     },
     #[error(display = "Failed to create Pipeline: {}", err)]
     PipelineCreationError { err: vk::Result },
+    #[error(display = "Failed to create Framebuffer: {}", err)]
+    FramebufferCreationError { err: vk::Result },
+    #[error(display = "Failed to create Command buffer: {}", err)]
+    CommandBufferError { err: vk::Result },
+    #[error(display = "Failed to create Semaphore: {}", err)]
+    SemaphoreCreationError { err: vk::Result },
 }
 
 pub struct Renderer {
@@ -192,6 +198,11 @@ pub struct Renderer {
     pipeline_layout: vk::PipelineLayout,
     render_pass: vk::RenderPass,
     pipeline: vk::Pipeline,
+    swapchain_framebuffers: Vec<vk::Framebuffer>,
+    command_pool: vk::CommandPool,
+    command_buffers: Vec<vk::CommandBuffer>,
+    image_available_semaphore: vk::Semaphore,
+    render_finished_semaphore: vk::Semaphore,
 }
 
 impl Renderer {
@@ -648,6 +659,15 @@ impl Renderer {
                 .color_attachments(&[color_attachment_ref])
                 .build();
 
+            let dependency = [vk::SubpassDependency {
+                src_subpass: vk::SUBPASS_EXTERNAL,
+                src_stage_mask: vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+                dst_access_mask: vk::AccessFlags::COLOR_ATTACHMENT_READ
+                    | vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
+                dst_stage_mask: vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+                ..Default::default()
+            }];
+
             let render_pass_info_attachments = [color_attachment];
             let render_pass_info_subpasses = [subpass];
             let render_pass_info = vk::RenderPassCreateInfo::builder()
@@ -671,9 +691,95 @@ impl Renderer {
                 .subpass(0)
                 .build();
 
+            // just create one pipeline for now because we only have one shader
             let pipeline = device
                 .create_graphics_pipelines(vk::PipelineCache::null(), &[pipeline_create_info], None)
                 .map_err(|err| RendererInitError::PipelineCreationError { err: err.1 })?[0];
+
+            let swapchain_framebuffers = image_views
+                .iter()
+                .map(|&image_view| {
+                    let attachments = [image_view];
+
+                    let framebuffer_create_info = vk::FramebufferCreateInfo::builder()
+                        .render_pass(render_pass)
+                        .attachments(&attachments)
+                        .width(extent.width)
+                        .height(extent.height)
+                        .layers(1);
+
+                    device
+                        .create_framebuffer(&framebuffer_create_info, None)
+                        .map_err(|err| RendererInitError::FramebufferCreationError { err })
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+
+            let command_pool_create_info = vk::CommandPoolCreateInfo::builder()
+                .queue_family_index(graphics_family_index)
+                .flags(vk::CommandPoolCreateFlags::empty());
+
+            let command_pool = device
+                .create_command_pool(&command_pool_create_info, None)
+                .map_err(|err| RendererInitError::CommandBufferError { err })?;
+
+            let command_buffer_alloc_info = vk::CommandBufferAllocateInfo::builder()
+                .command_pool(command_pool)
+                .level(vk::CommandBufferLevel::PRIMARY)
+                .command_buffer_count(swapchain_framebuffers.len() as u32);
+
+            let command_buffers = device
+                .allocate_command_buffers(&command_buffer_alloc_info)
+                .map_err(|err| RendererInitError::CommandBufferError { err })?;
+
+            for (i, &command_buffer) in command_buffers.iter().enumerate() {
+                let begin_info = vk::CommandBufferBeginInfo::builder()
+                    .flags(vk::CommandBufferUsageFlags::SIMULTANEOUS_USE);
+
+                device
+                    .begin_command_buffer(command_buffer, &begin_info)
+                    .map_err(|err| RendererInitError::CommandBufferError { err })?;
+
+                let clear_values = [vk::ClearValue {
+                    color: vk::ClearColorValue {
+                        float32: [0.0, 0.0, 0.0, 1.0],
+                    },
+                }];
+
+                let render_pass_info = vk::RenderPassBeginInfo::builder()
+                    .render_pass(render_pass)
+                    .framebuffer(swapchain_framebuffers[i])
+                    .render_area(vk::Rect2D {
+                        offset: vk::Offset2D { x: 0, y: 0 },
+                        extent: extent,
+                    })
+                    .clear_values(&clear_values);
+
+                device.cmd_begin_render_pass(
+                    command_buffer,
+                    &render_pass_info,
+                    vk::SubpassContents::INLINE,
+                );
+
+                device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, pipeline);
+
+                device.cmd_draw(command_buffer, 3, 1, 0, 0);
+
+                device.cmd_end_render_pass(command_buffer);
+
+                device
+                    .end_command_buffer(command_buffer)
+                    .map_err(|err| RendererInitError::CommandBufferError { err })?;
+            }
+
+            let semaphore_create_info = vk::SemaphoreCreateInfo::builder();
+            let image_available_semaphore =
+                device
+                    .create_semaphore(&semaphore_create_info, None)
+                    .map_err(|err| RendererInitError::SemaphoreCreationError { err })?;
+            let render_finished_semaphore =
+                device
+                    .create_semaphore(&semaphore_create_info, None)
+                    .map_err(|err| RendererInitError::SemaphoreCreationError { err })?;
 
             Ok(Renderer {
                 window,
@@ -693,6 +799,11 @@ impl Renderer {
                 pipeline_layout,
                 render_pass,
                 pipeline,
+                swapchain_framebuffers,
+                command_pool,
+                command_buffers,
+                image_available_semaphore,
+                render_finished_semaphore,
             })
         }
     }
@@ -701,12 +812,62 @@ impl Renderer {
 impl<'a> System<'a> for Renderer {
     type SystemData = ();
 
-    fn run(&mut self, (): Self::SystemData) {}
+    fn run(&mut self, (): Self::SystemData) {
+        unsafe {
+            let (image_index, suboptimal) = self
+                .swapchain_loader
+                .acquire_next_image(
+                    self.swapchain,
+                    u64::max_value(),
+                    self.image_available_semaphore,
+                    vk::Fence::null(),
+                )
+                .unwrap(); // i need to think about error handling here
+
+            let wait_semaphores = [self.image_available_semaphore];
+            let signal_semaphores = [self.render_finished_semaphore];
+            let wait_stages = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
+
+            let submit_info = vk::SubmitInfo::builder()
+                .wait_semaphores(&wait_semaphores)
+                .wait_dst_stage_mask(&wait_stages)
+                .signal_semaphores(&signal_semaphores)
+                .command_buffers(&[self.command_buffers[image_index as usize]])
+                .build();
+
+            self.device
+                .queue_submit(self.graphics_queue, &[submit_info], vk::Fence::null())
+                .unwrap();
+
+            let swapchains = [self.swapchain];
+
+            let present_info_image_indices = [image_index];
+            let present_info = vk::PresentInfoKHR::builder()
+                .wait_semaphores(&signal_semaphores)
+                .swapchains(&swapchains)
+                .image_indices(&present_info_image_indices);
+
+            self.swapchain_loader
+                .queue_present(self.present_queue, &present_info)
+                .unwrap();
+        }
+    }
 }
 
 impl Drop for Renderer {
     fn drop(&mut self) {
         unsafe {
+            self.device
+                .destroy_semaphore(self.image_available_semaphore, None);
+            self.device
+                .destroy_semaphore(self.render_finished_semaphore, None);
+
+            self.device.destroy_command_pool(self.command_pool, None);
+
+            for framebuffer in &self.swapchain_framebuffers {
+                self.device.destroy_framebuffer(*framebuffer, None);
+            }
+
             self.device.destroy_pipeline(self.pipeline, None);
 
             self.device
