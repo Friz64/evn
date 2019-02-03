@@ -169,6 +169,7 @@ pub struct Renderer {
     present_queue: vk::Queue,
     swapchain_loader: Swapchain,
     swapchain: vk::SwapchainKHR,
+    image_views: Vec<vk::ImageView>,
 }
 
 impl Renderer {
@@ -433,6 +434,43 @@ impl Renderer {
                     err: Either::Left(err),
                 })?;
 
+            let images = swapchain_loader
+                .get_swapchain_images(swapchain)
+                .map_err(|err| RendererInitError::SwapchainCreationError {
+                    err: Either::Left(err),
+                })?;
+
+            let image_views_iter = images.into_iter().map(|image| {
+                let view_create_info = vk::ImageViewCreateInfo::builder()
+                    .view_type(vk::ImageViewType::TYPE_2D)
+                    .format(surface_format.format)
+                    .components(vk::ComponentMapping {
+                        r: vk::ComponentSwizzle::IDENTITY,
+                        g: vk::ComponentSwizzle::IDENTITY,
+                        b: vk::ComponentSwizzle::IDENTITY,
+                        a: vk::ComponentSwizzle::IDENTITY,
+                    })
+                    .subresource_range(vk::ImageSubresourceRange {
+                        aspect_mask: vk::ImageAspectFlags::COLOR,
+                        base_mip_level: 0,
+                        level_count: 1,
+                        base_array_layer: 0,
+                        layer_count: 1,
+                    })
+                    .image(image);
+
+                device.create_image_view(&view_create_info, None)
+            });
+
+            let mut image_views = Vec::new();
+            for image_view in image_views_iter {
+                image_views.push(image_view.map_err(|err| {
+                    RendererInitError::SwapchainCreationError {
+                        err: Either::Left(err),
+                    }
+                })?);
+            }
+
             Ok(Renderer {
                 window,
                 entry,
@@ -446,6 +484,7 @@ impl Renderer {
                 present_queue,
                 swapchain_loader,
                 swapchain,
+                image_views,
             })
         }
     }
@@ -460,6 +499,10 @@ impl<'a> System<'a> for Renderer {
 impl Drop for Renderer {
     fn drop(&mut self) {
         unsafe {
+            for image_view in &self.image_views {
+                self.device.destroy_image_view(*image_view, None);
+            }
+
             self.swapchain_loader
                 .destroy_swapchain(self.swapchain, None);
 
