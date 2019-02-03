@@ -15,6 +15,7 @@ use crate::{
 use clap::{App, Arg};
 use crossbeam::{channel, Sender};
 use err_derive::Error;
+use fnv::FnvHashMap;
 use log::info;
 use rayon::{ThreadPoolBuildError, ThreadPoolBuilder};
 use specs::{Dispatcher, DispatcherBuilder, World};
@@ -114,6 +115,7 @@ impl<'a, 'b> Game<'a, 'b> {
         let resources = resources(ResourceBuilder {
             res: Arc::new(RwLock::new(ResourcesData::new())),
             is_dev,
+            names: FnvHashMap::default(),
         });
 
         // Renderer
@@ -122,8 +124,13 @@ impl<'a, 'b> Game<'a, 'b> {
             .build(&events_loop)
             .map_err(|err| GameInitError::WindowCreation { err })?;
 
-        let renderer = Renderer::new(window, debug_callback)
-            .map_err(|err| GameInitError::RendererCreation { err })?;
+        let renderer = Renderer::new(
+            window,
+            debug_callback,
+            resources.res.clone(),
+            resources.names,
+        )
+        .map_err(|err| GameInitError::RendererCreation { err })?;
 
         // Dispatcher
         let dispatcher =

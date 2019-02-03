@@ -1,10 +1,11 @@
-use crate::{config::Config, rendering::shaders::Shader};
-use hashbrown::HashMap;
-use log::warn;
+use crate::{config::Config, rendering::Shader};
+use fnv::{FnvBuildHasher, FnvHashMap};
+use log::{info, warn};
 use std::{
+    collections::HashMap,
     fmt::Display,
     fs::File,
-    io::{Error as IoError, Read},
+    io::{Cursor, Error as IoError, Read},
     path::{Path, PathBuf},
     sync::{Arc, Mutex, RwLock},
     thread,
@@ -33,17 +34,31 @@ impl ResourceState {
             false
         }
     }
+    pub fn is_loading(&self) -> bool {
+        if let ResourceState::Loading = self {
+            true
+        } else {
+            false
+        }
+    }
+    pub fn is_failed(&self) -> bool {
+        if let ResourceState::Failed = self {
+            true
+        } else {
+            false
+        }
+    }
 }
 
 #[derive(Debug)]
 pub struct ResourcesData {
-    resources: Arc<Mutex<HashMap<String, Arc<ResourceState>>>>,
+    resources: Arc<Mutex<HashMap<String, Arc<ResourceState>, FnvBuildHasher>>>,
 }
 
 impl ResourcesData {
     pub fn new() -> Self {
         ResourcesData {
-            resources: Arc::new(Mutex::new(HashMap::new())),
+            resources: Arc::new(Mutex::new(FnvHashMap::default())),
         }
     }
 
@@ -67,6 +82,7 @@ impl ResourcesData {
                         let mut res = res.lock().unwrap();
                         if let Some(val) = (*res).get_mut(&name) {
                             *(val) = Arc::new(ResourceState::Loaded(loaded));
+                            info!("Resource \"{}\" loaded!", name);
                         }
                     }
                     Err(err) => {
@@ -96,17 +112,20 @@ impl ResourcesData {
 pub struct ResourceBuilder {
     pub res: Resources,
     pub is_dev: bool,
+    pub names: HashMap<String, Vec<String>, FnvBuildHasher>,
 }
 
 impl ResourceBuilder {
     pub fn with_config<P: AsRef<Path> + Send + Sync + 'static>(
-        self,
+        mut self,
         name: impl AsRef<str>,
         path: P,
         template: &'static [u8],
     ) -> ResourceBuilder {
-        let is_dev = self.is_dev;
+        let names = self.names.entry("configs".into()).or_insert(Vec::new());
+        (*names).push(name.as_ref().to_owned());
 
+        let is_dev = self.is_dev;
         {
             let resources = self.res.read().unwrap();
             (*resources).add_resource(name, {
@@ -127,13 +146,15 @@ impl ResourceBuilder {
     }
 
     pub fn with_shader<P: AsRef<Path> + Send + Sync + 'static>(
-        self,
+        mut self,
         name: impl AsRef<str>,
         vert_path: P,
         frag_path: P,
     ) -> ResourceBuilder {
-        let is_dev = self.is_dev;
+        let names = self.names.entry("shaders".into()).or_insert(Vec::new());
+        (*names).push(name.as_ref().to_owned());
 
+        let is_dev = self.is_dev;
         {
             let resources = self.res.read().unwrap();
             (*resources).add_resource(name, {
@@ -156,7 +177,10 @@ impl ResourceBuilder {
                                 buf
                             };
 
-                            Shader { vert, frag }
+                            Shader {
+                                vert: ash::util::read_spv(&mut Cursor::new(&vert))?,
+                                frag: ash::util::read_spv(&mut Cursor::new(&frag))?,
+                            }
                         }))
                     }
                 }
