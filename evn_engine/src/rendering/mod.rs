@@ -6,6 +6,7 @@ use ash::{
         ext::DebugUtils,
         khr::{Surface, Swapchain},
     },
+    prelude::VkResult,
     version::{DeviceV1_0, EntryV1_0, InstanceV1_0},
     vk, vk_make_version, Device, Entry, Instance, InstanceError, LoadingError,
 };
@@ -19,8 +20,92 @@ use std::{
 };
 use winit::Window;
 
+const VALIDATION_LAYERS: [&str; 1] = ["VK_LAYER_LUNARG_standard_validation"];
+const INSTANCE_EXTENSIONS: [&str; 1] = ["VK_EXT_debug_utils"];
+const DEVICE_EXTENSIONS: [&str; 1] = ["VK_KHR_swapchain"];
+
 fn string_pointer(string: &str) -> *const i8 {
     CString::new(string).unwrap().into_raw() as *const i8
+}
+
+unsafe fn surface_information(
+    surface_loader: &Surface,
+    surface: vk::SurfaceKHR,
+    physical_device: vk::PhysicalDevice,
+) -> VkResult<(
+    vk::SurfaceCapabilitiesKHR,
+    Vec<vk::PresentModeKHR>,
+    Vec<vk::SurfaceFormatKHR>,
+)> {
+    let surface_capabilites =
+        surface_loader.get_physical_device_surface_capabilities(physical_device, surface)?;
+
+    let surface_present_modes =
+        surface_loader.get_physical_device_surface_present_modes(physical_device, surface)?;
+
+    let surface_formats =
+        surface_loader.get_physical_device_surface_formats(physical_device, surface)?;
+
+    Ok((surface_capabilites, surface_present_modes, surface_formats))
+}
+
+fn choose_swap_surface_format(
+    available_formats: Vec<vk::SurfaceFormatKHR>,
+) -> vk::SurfaceFormatKHR {
+    if available_formats.len() == 1 && available_formats[0].format == vk::Format::UNDEFINED {
+        return vk::SurfaceFormatKHR::builder()
+            .format(vk::Format::B8G8R8A8_UNORM)
+            .color_space(vk::ColorSpaceKHR::SRGB_NONLINEAR)
+            .build();
+    }
+
+    for available_format in &available_formats {
+        if available_format.format == vk::Format::B8G8R8A8_UNORM
+            && available_format.color_space == vk::ColorSpaceKHR::SRGB_NONLINEAR
+        {
+            return available_format.clone();
+        }
+    }
+
+    available_formats[0]
+}
+
+fn choose_swap_present_mode(
+    available_present_modes: Vec<vk::PresentModeKHR>,
+) -> vk::PresentModeKHR {
+    let mut best_mode = vk::PresentModeKHR::FIFO;
+
+    for available_present_mode in available_present_modes {
+        if available_present_mode == vk::PresentModeKHR::MAILBOX {
+            return available_present_mode;
+        } else if available_present_mode == vk::PresentModeKHR::IMMEDIATE {
+            best_mode = available_present_mode;
+        }
+    }
+
+    best_mode
+}
+
+fn choose_swap_extent(
+    window_size: winit::dpi::LogicalSize,
+    capabilites: vk::SurfaceCapabilitiesKHR,
+) -> vk::Extent2D {
+    if capabilites.current_extent.width != u32::max_value() {
+        capabilites.current_extent
+    } else {
+        let (width, height) = window_size.into();
+
+        vk::Extent2D {
+            width: capabilites
+                .min_image_extent
+                .width
+                .max(capabilites.max_image_extent.width.min(width)),
+            height: capabilites
+                .min_image_extent
+                .height
+                .max(capabilites.max_image_extent.height.min(height)),
+        }
+    }
 }
 
 unsafe extern "system" fn vulkan_debug_callback(
@@ -29,11 +114,8 @@ unsafe extern "system" fn vulkan_debug_callback(
     callback_data: *const vk::DebugUtilsMessengerCallbackDataEXT,
     _user_data: *mut c_void,
 ) -> u32 {
-    let message = CStr::from_ptr((*callback_data).p_message)
-        .to_string_lossy()
-        .chars()
-        .filter(|c| *c != '\u{A}') // filter out newlines
-        .collect::<String>();
+    let message = CStr::from_ptr((*callback_data).p_message).to_string_lossy();
+    let message = message.trim();
 
     match message_severity {
         vk::DebugUtilsMessageSeverityFlagsEXT::VERBOSE => {
@@ -68,6 +150,8 @@ pub enum RendererInitError {
     PhysicalDeviceError { err: Either<vk::Result, String> },
     #[error(display = "Failed to create Device: {}", err)]
     DeviceCreationError { err: vk::Result },
+    #[error(display = "Failed to create Swapchain: {}", err)]
+    SwapchainCreationError { err: Either<vk::Result, String> },
 }
 
 pub struct Renderer {
@@ -83,6 +167,8 @@ pub struct Renderer {
     device: Device,
     graphics_queue: vk::Queue,
     present_queue: vk::Queue,
+    swapchain_loader: Swapchain,
+    swapchain: vk::SwapchainKHR,
 }
 
 impl Renderer {
@@ -96,9 +182,13 @@ impl Renderer {
             let mut instance_extension_names = platform::extension_names();
 
             if debug_callback {
-                instance_layer_names.push(string_pointer("VK_LAYER_LUNARG_standard_validation"));
+                for layer in VALIDATION_LAYERS.iter() {
+                    instance_layer_names.push(string_pointer(layer));
+                }
 
-                instance_extension_names.push(string_pointer("VK_EXT_debug_utils"));
+                for extension in INSTANCE_EXTENSIONS.iter() {
+                    instance_extension_names.push(string_pointer(extension));
+                }
             }
 
             let application_name = CString::new("evn").unwrap();
@@ -156,13 +246,50 @@ impl Renderer {
             let surface_loader = Surface::new(&entry, &instance);
 
             // maybe provide gui for device selection down the line?
-            let (physical_device, graphics_family_index, present_family_index) = instance
+            let (
+                physical_device,
+                graphics_family_index,
+                present_family_index,
+                surface_capabilites,
+                surface_present_modes,
+                surface_formats,
+            ) = instance
                 .enumerate_physical_devices()
                 .map_err(|err| RendererInitError::PhysicalDeviceError {
                     err: Either::Left(err),
                 })?
                 .into_iter()
                 .filter_map(|physical_device| {
+                    let device_extension_properties =
+                        instance.enumerate_device_extension_properties(physical_device);
+                    let device_extension_properties = match device_extension_properties {
+                        Ok(device_extension_properties) => device_extension_properties
+                            .iter()
+                            .map(|property| {
+                                CStr::from_ptr(&property.extension_name as *const i8)
+                                    .to_string_lossy()
+                                    .into_owned()
+                            })
+                            .collect::<Vec<_>>(),
+                        Err(err) => return Some(Err(err)),
+                    };
+
+                    if !DEVICE_EXTENSIONS.iter().all(|extension| {
+                        device_extension_properties.contains(&extension.to_string())
+                    }) {
+                        return None;
+                    };
+
+                    let (surface_capabilites, surface_present_modes, surface_formats) =
+                        match surface_information(&surface_loader, surface, physical_device) {
+                            Ok(information) => information,
+                            Err(err) => return Some(Err(err)),
+                        };
+
+                    if surface_formats.is_empty() || surface_present_modes.is_empty() {
+                        return None;
+                    }
+
                     let queue_family_properties =
                         instance.get_physical_device_queue_family_properties(physical_device);
 
@@ -197,23 +324,37 @@ impl Renderer {
                         .nth(0);
 
                     match (graphics_family_index, present_family_index) {
-                        (Some(graphics), Some(present)) => {
-                            Some((physical_device, graphics, present))
-                        }
+                        (Some(graphics), Some(present)) => Some(Ok((
+                            physical_device,
+                            graphics,
+                            present,
+                            surface_capabilites,
+                            surface_present_modes,
+                            surface_formats,
+                        ))),
                         _ => None,
                     }
                 })
                 .nth(0)
                 .ok_or(RendererInitError::PhysicalDeviceError {
                     err: Either::Right("Failed to find suitable device".into()),
+                })?
+                .map_err(|err| RendererInitError::PhysicalDeviceError {
+                    err: Either::Left(err),
                 })?;
 
-            let device_extension_names = [Swapchain::name().as_ptr()];
-            let mut device_layer_names = Vec::new();
             let device_features = vk::PhysicalDeviceFeatures::builder();
 
+            let mut device_layer_names = Vec::new();
+            let mut device_extension_names = Vec::new();
             if debug_callback {
-                device_layer_names.push(string_pointer("VK_LAYER_LUNARG_standard_validation"));
+                for layer in VALIDATION_LAYERS.iter() {
+                    device_layer_names.push(string_pointer(layer));
+                }
+
+                for extension in DEVICE_EXTENSIONS.iter() {
+                    device_extension_names.push(string_pointer(extension));
+                }
             }
 
             let mut queue_family_indices = vec![graphics_family_index, present_family_index];
@@ -243,6 +384,55 @@ impl Renderer {
             let graphics_queue = device.get_device_queue(graphics_family_index, 0);
             let present_queue = device.get_device_queue(present_family_index, 0);
 
+            let surface_format = choose_swap_surface_format(surface_formats);
+            let present_mode = choose_swap_present_mode(surface_present_modes);
+            let extent = choose_swap_extent(
+                window
+                    .get_inner_size()
+                    .ok_or(RendererInitError::SwapchainCreationError {
+                        err: Either::Right("Failed to get window size".into()),
+                    })?,
+                surface_capabilites,
+            );
+
+            let mut image_count = surface_capabilites.min_image_count + 1;
+            if surface_capabilites.max_image_count > 0
+                && image_count > surface_capabilites.max_image_count
+            {
+                image_count = surface_capabilites.max_image_count;
+            }
+
+            let mut swapchain_create_info = vk::SwapchainCreateInfoKHR::builder()
+                .surface(surface)
+                .min_image_count(image_count)
+                .image_format(surface_format.format)
+                .image_color_space(surface_format.color_space)
+                .image_extent(extent)
+                .image_array_layers(1)
+                .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT)
+                .pre_transform(surface_capabilites.current_transform)
+                .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
+                .present_mode(present_mode)
+                .clipped(true);
+
+            let swapchain_queue_family_indices = [graphics_family_index, present_family_index];
+            if graphics_family_index != present_family_index {
+                swapchain_create_info = swapchain_create_info
+                    .image_sharing_mode(vk::SharingMode::CONCURRENT)
+                    .queue_family_indices(&swapchain_queue_family_indices)
+            } else {
+                swapchain_create_info =
+                    swapchain_create_info.image_sharing_mode(vk::SharingMode::EXCLUSIVE)
+            };
+
+            let swapchain_loader = Swapchain::new(&instance, &device);
+
+            let swapchain = swapchain_loader
+                .create_swapchain(&swapchain_create_info, None)
+                .map_err(|err| RendererInitError::SwapchainCreationError {
+                    err: Either::Left(err),
+                })?;
+
             Ok(Renderer {
                 window,
                 entry,
@@ -254,6 +444,8 @@ impl Renderer {
                 device,
                 graphics_queue,
                 present_queue,
+                swapchain_loader,
+                swapchain,
             })
         }
     }
@@ -268,6 +460,9 @@ impl<'a> System<'a> for Renderer {
 impl Drop for Renderer {
     fn drop(&mut self) {
         unsafe {
+            self.swapchain_loader
+                .destroy_swapchain(self.swapchain, None);
+
             self.surface_loader.destroy_surface(self.surface, None);
 
             self.device.destroy_device(None);
