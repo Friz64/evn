@@ -2,6 +2,13 @@
 
 A hobby game with a selfmade engine written in Rust
 
+## Screenshots
+
+| The first triangle |
+| - |
+| ![The first triangle!](https://cdn.discordapp.com/attachments/342294639363227648/541792444279291905/unknown.png) |
+
+
 ## Resource System
 
 System for loading external files asynchronously.

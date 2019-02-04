@@ -71,7 +71,6 @@ pub enum RendererInitError {
 }
 
 pub struct Renderer {
-    #[allow(dead_code)]
     window: Window,
     #[allow(dead_code)]
     entry: Entry,
