@@ -75,23 +75,23 @@ impl<'a, 'b> Game<'a, 'b> {
                     .help("Enable Development mode"),
             )
             .arg(
-                Arg::with_name("debug-callback")
-                    .long("debug-callback")
-                    .help("Enable Vulkan debug callback"),
+                Arg::with_name("validation")
+                    .long("validation")
+                    .help("Enable Vulkan validation layers"),
             )
             .arg(
-                Arg::with_name("no-color")
-                    .long("no-color")
+                Arg::with_name("color")
+                    .long("color")
                     .short("c")
-                    .help("Don't color the console log"),
+                    .help("Enable console coloring"),
             )
             .get_matches();
 
-        let no_color = clap.is_present("no-color");
+        let color = clap.is_present("color");
         let is_dev = clap.is_present("dev");
-        let debug_callback = clap.is_present("debug-callback");
+        let debug_callback = clap.is_present("validation");
 
-        if let Err(err) = Logger::init(!no_color) {
+        if let Err(err) = Logger::init(color) {
             eprintln!("Failed to init logger: {}", err);
         }
 

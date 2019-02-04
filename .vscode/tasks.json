@@ -14,12 +14,12 @@
         {
             "type": "shell",
             "label": "run debug",
-            "command": "cargo run -p evn -- --dev --debug-callback"
+            "command": "cargo run -p evn -- -c --dev --validation"
         },
         {
             "type": "shell",
             "label": "run release",
-            "command": "cargo run -p evn --release -- --dev"
+            "command": "cargo run -p evn --release -- -c --dev"
         },
         {
             "type": "shell",

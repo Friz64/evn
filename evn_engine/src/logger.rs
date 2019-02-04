@@ -147,26 +147,9 @@ fn output(time: &str, record: &log::Record, colored: bool) -> String {
         };
 
         // https://upload.wikimedia.org/wikipedia/commons/1/15/Xterm_256color_chart.svg
-        format!(
-            "[{}] {}:{} - {}: {}",
-            Fixed(245).paint(time),
-            record.module_path().unwrap_or_default(),
-            record
-                .line()
-                .map(|option| Fixed(172).paint(option.to_string()).to_string())
-                .unwrap_or_default(),
-            level,
-            record.args(),
-        )
+        format!("[{}] {}: {}", Fixed(245).paint(time), level, record.args(),)
     } else {
-        format!(
-            "[{}] {}:{} - {}: {}",
-            time,
-            record.module_path().unwrap_or_default(),
-            record.line().unwrap_or_default(),
-            record.level(),
-            record.args(),
-        )
+        format!("[{}] {}: {}", time, record.level(), record.args(),)
     }
 }
 
